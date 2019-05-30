@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"time"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/go-redis/redis"
 )
 
 // A DelayFunc is used to decide the amount of time to wait between retries.
@@ -88,13 +88,14 @@ func genValue() (string, error) {
 }
 
 func (m *Mutex) acquire(pool Pool, value string) bool {
-	conn := pool.Get()
-	defer conn.Close()
-	reply, err := redis.String(conn.Do("SET", m.name, value, "NX", "PX", int(m.expiry/time.Millisecond)))
+	client := pool.Get()
+	cmd := client.Do("SET", m.name, value, "NX", "PX", int(m.expiry/time.Millisecond))
+	reply, _ := cmd.String()
+	err := cmd.Err()
 	return err == nil && reply == "OK"
 }
 
-var deleteScript = redis.NewScript(1, `
+var deleteScript = redis.NewScript(`
 	if redis.call("GET", KEYS[1]) == ARGV[1] then
 		return redis.call("DEL", KEYS[1])
 	else
@@ -103,13 +104,14 @@ var deleteScript = redis.NewScript(1, `
 `)
 
 func (m *Mutex) release(pool Pool, value string) bool {
-	conn := pool.Get()
-	defer conn.Close()
-	status, err := deleteScript.Do(conn, m.name, value)
+	client := pool.Get()
+	cmd := deleteScript.Run(client, []string{m.name}, value)
+	status, _ := cmd.Int()
+	err := cmd.Err()
 	return err == nil && status != 0
 }
 
-var touchScript = redis.NewScript(1, `
+var touchScript = redis.NewScript(`
 	if redis.call("GET", KEYS[1]) == ARGV[1] then
 		return redis.call("pexpire", KEYS[1], ARGV[2])
 	else
@@ -118,9 +120,10 @@ var touchScript = redis.NewScript(1, `
 `)
 
 func (m *Mutex) touch(pool Pool, value string, expiry int) bool {
-	conn := pool.Get()
-	defer conn.Close()
-	status, err := touchScript.Do(conn, m.name, value, expiry)
+	client := pool.Get()
+	cmd := touchScript.Run(client, []string{m.name}, value, expiry)
+	status, _ := cmd.Int()
+	err := cmd.Err()
 	return err == nil && status != 0
 }
 

@@ -26,6 +26,11 @@ func TestMain(m *testing.M) {
 
 func TestRedsync(t *testing.T) {
 	pools := newMockPools(8, servers)
+	defer func() {
+		for _, v := range pools {
+			v.Get().Close()
+		}
+	}()
 	rs := New(pools)
 
 	mutex := rs.NewMutex("test-redsync")
